@@ -41,6 +41,7 @@ int main(int argc,char**argv){
   if(argc<3){fprintf(stderr,"usage: gh OAM SCROLL [lag] [v]\n");return 2;}
   FILE*fo=fopen(argv[1],"r"),*fs=fopen(argv[2],"r"); if(!fo||!fs){perror("open");return 1;}
   s_lag_enable = argc>3 ? atoi(argv[3]) : 1;
+  if(getenv("GH_EASE")) s_ease = atoi(getenv("GH_EASE"));
   int verbose = argc>4;
   char lo[4096],ls[1024];
   s_present_rate=240; s_glide=1; s_shots=1;
@@ -62,7 +63,7 @@ int main(int argc,char**argv){
       }
     }
     if(!hud){ smooth_reset(); have_bg=false; ntr=0; continue; }
-    bands_frame(); glide_frame(s_nband>0, s_cam_dx, s_cam_dy);
+    bands_frame(); glide_frame(s_nband>0, s_cam_dx, s_cam_dy); memcpy(s_snap_oam,H_oam,256);
     ctot += s_cam_dx; frames++;
     if(getenv("GH_FRAME") && (f==atol(getenv("GH_FRAME"))||f==atol(getenv("GH_FRAME"))-1)){
       for(int sl=0;sl<64;sl++){const uint8_t*o=H_oam+sl*4; if(o[0]>=0xEF)continue;

@@ -1,14 +1,15 @@
 # NINJA GAIDEN - NEXT STEPS (run in fish, one block at a time)
 # ============================================================
-# Fixed (tested offline on your recorded play):
-#   - scrolling from a stop starts at running speed (no slow start + overshoot)
-#   - Ryu: no 0.65 px pop every 4 frames when his legs change pose
+# New: Smooth motion -> "Camera easing": Quick / Gentle (default) / Softest.
+#   Gentle eases the scenery in and out over 6 frames (1/10 s) at every start and stop;
+#   Ryu and the enemies stay quick and exact.
 #
 # 1) Save and rebuild
 cd ~/Projects/NinjaGaiden1Recomp
-git add -A; git commit -m "Ninja Gaiden: scrolling starts at running speed; Ryu's step measured through pose changes"
+git add -A; git commit -m "Ninja Gaiden: Camera easing (Quick/Gentle/Softest) for starts and stops"
 cmake --build build-play --parallel
 
-# 2) Play: the 1-1 fence (stop and go), watch Ryu running
+# 2) Play: stop and go at the 1-1 fence. Compare Gentle, Softest and Quick in the menu
+#   (Escape -> Smooth motion -> Camera easing; it changes immediately).
 cd ~/Projects/NinjaGaiden1Recomp
 env CYC_PACING_LOG=pacing.log mangohud ./build-play/ng1recomp ninjagaiden.nes

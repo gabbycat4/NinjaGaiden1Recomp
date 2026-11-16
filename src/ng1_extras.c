@@ -290,8 +290,28 @@ static int    s_band_dx[MAX_PF_BANDS];
  * game's own position, and at most 8 px behind (the edge crop). Measured on
  * the recorded play: the speed's frame-to-frame change drops from ~0.75 to
  * ~0.13 px, at most ~3 px behind. */
-enum { EASE_N = 4 };
-typedef struct { double x, d0, v; double hist[EASE_N]; bool valid; double run; } BandMotion;
+enum { EASE_N = 4, EASE_MAX = 8 };
+/* hist: the last EASE_MAX steps, newest last. */
+typedef struct { double x, d0, v; double hist[EASE_MAX]; bool valid; double run; } BandMotion;
+/* CameraEasing (menu "Camera easing"): 0 Quick - the average of the last 4
+ * steps, pulled toward one step behind (starts at full speed at once, like
+ * the game); 1 Gentle (default) / 2 Softest - the picture follows the
+ * moving average of the game's last 6 / 8 positions: a start ramps up over
+ * 6 / 8 frames (0.33, 0.5, 0.83, 1.0, 1.33, 1.5 px a frame) and a stop ramps
+ * down the same way, a run is exactly 1.50 px a frame (the 1,2,1,2 rhythm
+ * averages out), never past the game and at most 4 / 5.5 px behind (under the
+ * edge crop). Ninja Gaiden's camera goes from rest to full speed in one
+ * frame; at 240 pictures a second the fine fences showed that as a flash.
+ * Characters use the same easing, so Ryu running with the camera stays where
+ * the game puts him on screen. */
+static int s_ease = 1, s_ease_saved = 1;
+/* Only the scenery (the scroll bands) eases gently; characters keep the
+ * quick easing, so Ryu and the enemies are drawn where they are (with
+ * the gentle easing on characters too, a fast enemy was drawn up to 13 px
+ * - 2.5 frames - behind its real spot). Still objects sit on the eased
+ * scenery either way. bands_frame() sets s_ease_on while it eases bands. */
+static int s_ease_on;
+static int ease_window(void) { return s_ease_on == 2 ? 8 : s_ease_on == 1 ? 6 : EASE_N; }
 static BandMotion s_bm[MAX_PF_BANDS], s_bm_prev[MAX_PF_BANDS];
 /* Up and down, the same way (Contra's Waterfall: the camera climbs after
  * the player with the game's own slowing steps 3,3,2,2,2,1,1,0,1,0 px and
@@ -311,8 +331,12 @@ static void ease_band(BandMotion *m, double d, bool jump)
          * with no history - the stage start, after a respawn or a cinema
          * scene - jerked back 2 px before moving: the 1-1 fence flashed.) */
         m->d0 = 0;
-        double sp = fabs(d) <= 2 ? 1.5 : fabs(d);  /* at running speed (see below) */
-        for (int i = 0; i < EASE_N; ++i) m->hist[i] = jump || d == 0 ? 0 : d > 0 ? sp : -sp;
+        double sp = s_ease_on ? fabs(d) : fabs(d) <= 2 ? 1.5 : fabs(d);  /* at running speed (see below) */
+        for (int i = 0; i < EASE_MAX; ++i) m->hist[i] = jump || d == 0 ? 0 : d > 0 ? sp : -sp;
+        /* Gentle/Softest: as if it had moved at this speed for the whole
+         * window, so the picture already trails by the moving average's
+         * lag (speed x (window-1)/2) and can slow down when the game stops. */
+        if (s_ease_on && !jump) m->d0 = -d * (ease_window() - 1) / 2.0;
         m->valid = true;
         if (jump) { m->v = 0; return; }
     } else {
@@ -323,25 +347,31 @@ static void ease_band(BandMotion *m, double d, bool jump)
          * behind, then overshot to 1.73 and wobbled 1.6/1.7 for ~10 frames
          * catching up: the fence looked jarring at every start. So a start
          * begins at the last run's speed (1.5 the first time). */
-        bool rest = m->hist[EASE_N - 1] == 0 && fabs(m->x - m->d0) < 0.01;   /* stopped, picture caught up */
-        if (rest && d != 0) {
+        bool rest = m->hist[EASE_MAX - 1] == 0 && fabs(m->x - m->d0) < 0.01;   /* stopped, picture caught up */
+        if (!s_ease_on && rest && d != 0) {
             double sp = m->run > 0 ? m->run : (fabs(d) <= 2 ? 1.5 : fabs(d));
-            for (int i = 0; i < EASE_N; ++i) m->hist[i] = d > 0 ? sp : -sp;
+            for (int i = 0; i < EASE_MAX; ++i) m->hist[i] = d > 0 ? sp : -sp;
         }
     }
     m->x += d;
-    for (int i = 0; i < EASE_N - 1; ++i) m->hist[i] = m->hist[i + 1];
-    m->hist[EASE_N - 1] = d;
+    for (int i = 0; i < EASE_MAX - 1; ++i) m->hist[i] = m->hist[i + 1];
+    m->hist[EASE_MAX - 1] = d;
+    int win = ease_window();
     double avg = 0;
-    for (int i = 0; i < EASE_N; ++i) avg += m->hist[i];
-    avg /= EASE_N;
-    {   /* remember a steady run's speed (all 4 steps one way) */
+    for (int i = EASE_MAX - win; i < EASE_MAX; ++i) avg += m->hist[i];
+    avg /= win;
+    {   /* remember a steady run's speed (the last 4 steps one way) */
         bool same = true;
-        for (int i = 0; i < EASE_N; ++i) same = same && m->hist[i] != 0 && (m->hist[i] > 0) == (m->hist[0] > 0);
-        if (same && !jump) m->run = fabs(avg);
+        for (int i = EASE_MAX - EASE_N; i < EASE_MAX; ++i)
+            same = same && m->hist[i] != 0 && (m->hist[i] > 0) == (m->hist[EASE_MAX - 1] > 0);
+        if (same && !jump) {
+            double a4 = 0;
+            for (int i = EASE_MAX - EASE_N; i < EASE_MAX; ++i) a4 += m->hist[i];
+            m->run = fabs(a4 / EASE_N);
+        }
     }
     double e = m->x - m->d0;                       /* how far the picture is behind the game */
-    double v = avg + EASE_GAIN * (e - avg);
+    double v = s_ease_on ? avg : avg + EASE_GAIN * (e - avg);   /* Gentle/Softest: the moving average itself */
     if (e >= 0) v = v < 0 ? 0 : v > e ? e : v;    /* never past the game's position */
     else        v = v > 0 ? 0 : v < e ? e : v;
     if (e - v > SMOOTH_MAX_STEP) v = e - SMOOTH_MAX_STEP;   /* never more than 8 px behind */
@@ -429,9 +459,17 @@ static void shake_lines(void)
 }
 
 enum { HUD_SPLIT_LINE = 56 };
+static void bands_frame_eased(void);
 static bool s_hud_split_seen;
 
 static void bands_frame(void)
+{
+    s_ease_on = s_ease;
+    bands_frame_eased();
+    s_ease_on = 0;
+}
+
+static void bands_frame_eased(void)
 {
     shake_lines();
     memcpy(s_band_prev, s_band, sizeof(s_band));
@@ -494,6 +532,9 @@ static void bands_frame(void)
                 s_bmy[b] = s_bmy_prev[j];
                 ease_band(&s_bmy[b], s_band_dy[b], jumpy);
             }
+        /* A band seen for the first time starts at rest: its first steps
+         * then ease in like any start (it used to begin at full speed). */
+        if (on && !s_bm[b].valid) { ease_band(&s_bm[b], 0, false); ease_band(&s_bmy[b], 0, false); }
         for (int y = y0; y < y1; ++y) s_line_band[y] = (int8_t)b;
         if (on && y1 - y0 > most) { most = y1 - y0; biggest = b; }
     }
@@ -624,7 +665,7 @@ static int chain_spread(int *parent, int r, int nv, const bool *has, const int *
 static double motion_speed(const BandMotion *m)
 {
     double a = 0;
-    for (int i = 0; i < EASE_N; ++i) a += m->hist[i];
+    for (int i = EASE_MAX - EASE_N; i < EASE_MAX; ++i) a += m->hist[i];
     return a / EASE_N;
 }
 
@@ -942,7 +983,19 @@ static void snapshot_sprites(void)
 static void sprite_glide_offset(int slot, double phase, double *gx, double *gy)
 {
     *gx = *gy = 0;
-    if (!(s_glide && s_gl_ok[slot] && s_present_rate > 60)) return;
+    if (!(s_glide && s_present_rate > 60)) return;
+    if (!s_gl_ok[slot]) {
+        /* Not matched yet (just appeared): moves with the scenery it is on,
+         * like a still object (lanterns scrolling into view), instead of
+         * sitting where the game put it while the eased scenery trails up to
+         * 4 px and jumping when it is matched next frame. */
+        const uint8_t *o = s_snap_oam + slot * 4;
+        int ln = clampi(o[0] + 9, 0, NES_H - 1);
+        int b = s_line_band[ln];
+        *gx = band_offset(b, phase) + (s_tile_lag[o[1]][o[2] & 3] >= LAG_ON ? s_spr_lead : 0);
+        *gy = band_offset_y(b, phase);
+        return;
+    }
     double q = 1.0 - phase;
     const BandMotion *m = &s_gm[slot];
     double own = m->valid ? m->x - (m->d0 + m->v * phase) : s_gdx[slot] * q;
@@ -1252,6 +1305,7 @@ static void load_setting(void *ctx, const char *key, const char *value)
     else if (!strcmp(key, "SteadyShots"))    s_shots = s_shots_saved = clampi(v, 0, 1);
     else if (!strcmp(key, "EmuThread"))      s_thread = s_thread_saved = clampi(v, 0, 1);
     else if (!strcmp(key, "ScreenShake"))    s_shake = s_shake_saved = clampi(v, 0, 1);
+    else if (!strcmp(key, "CameraEasing"))   s_ease = s_ease_saved = clampi(v, 0, 2);
     s_crop = s_crop_saved;
 }
 
@@ -1270,6 +1324,7 @@ static void save_settings(void *ctx, FILE *f)
     fprintf(f, "SteadyShots = %d\n", s_shots_saved);
     fprintf(f, "EmuThread = %d\n", s_thread_saved);
     fprintf(f, "ScreenShake = %d\n", s_shake_saved);
+    fprintf(f, "CameraEasing = %d\n", s_ease_saved);
 }
 
 static void power_on(void *ctx)
@@ -1381,6 +1436,7 @@ static bool option(void *ctx, const char *name, const char *value)
 static const char *const RATE_CHOICES[] = { "60 (off)", "120", "180", "240" };
 static const int RATE_VALUES[] = { 0, 120, 180, 240 };
 static const char *const ORDER_CHOICES[] = { "Game's order", "Lower on screen in front" };
+static const char *const EASE_CHOICES[] = { "Quick", "Gentle", "Softest" };
 static const char *const CROP_CHOICES[] = { "Off", "Standard", "More", "Custom (config.ini)" };
 static const Crop CROP_PRESETS[] = { { 0, 0, 0, 0 }, { 8, 8, 8, 8 }, { 12, 12, 12, 12 } };
 
@@ -1389,6 +1445,10 @@ static const RecompRuntimeUiItem s_menu[] = {
       "Extra pictures between the NES's 60 frames: the scenery and "
       "the characters glide a fraction of a pixel in each. 240 or 180 suit a 240 Hz FreeSync/G-Sync monitor.",
       RECOMP_RUNTIME_UI_CHOICE, 0, 3, 1, RATE_CHOICES, 4, RATE_VALUES },
+    { "ng1.ease", "Smooth motion", "Camera easing",
+      "How the scenery and the characters start and stop. Quick: at full speed at once, like the game. "
+      "Gentle: speeds up and slows down over 6 frames (1/10 s), mellow on the fine fences. Softest: over 8 frames.",
+      RECOMP_RUNTIME_UI_CHOICE, 0, 2, 1, EASE_CHOICES, 3, NULL },
     { "ng1.glide", "Smooth motion", "Character glide",
       "With 120/180/240 pictures per second, Ryu and the enemies glide between the game's positions "
       "instead of hopping. Off: they stay where the game put them on screen.",
@@ -1439,6 +1499,7 @@ static int menu_get(void *ctx, const RecompRuntimeUiItem *it, int *out)
         for (int i = 0; i < 4; ++i) if (RATE_VALUES[i] == s_present_rate) *out = RATE_VALUES[i];
     }
     else if (key_is(it, "ng1.glide")) *out = s_glide;
+    else if (key_is(it, "ng1.ease")) *out = s_ease;
     else if (key_is(it, "ng1.shots")) *out = s_shots;
     else if (key_is(it, "ng1.thread")) *out = s_thread;
     else if (key_is(it, "ng1.shake")) *out = s_shake;
@@ -1458,6 +1519,7 @@ static int menu_set(void *ctx, const RecompRuntimeUiItem *it, int v)
         s_prepared = -1;
     }
     else if (key_is(it, "ng1.glide")) s_glide = s_glide_saved = v != 0;
+    else if (key_is(it, "ng1.ease")) s_ease = s_ease_saved = clampi(v, 0, 2);
     else if (key_is(it, "ng1.shots")) s_shots = s_shots_saved = v != 0;
     else if (key_is(it, "ng1.thread")) s_thread = s_thread_saved = v != 0;
     else if (key_is(it, "ng1.shake")) { s_shake = s_shake_saved = v != 0; s_prepared = -1; }
@@ -1474,7 +1536,7 @@ static int menu_enabled(void *ctx, const RecompRuntimeUiItem *it)
 {
     (void)ctx;
     if (key_is(it, "ng1.order")) return s_unlimit;
-    if (key_is(it, "ng1.glide") || key_is(it, "ng1.thread")) return s_present_rate > 60;
+    if (key_is(it, "ng1.glide") || key_is(it, "ng1.thread") || key_is(it, "ng1.ease")) return s_present_rate > 60;
     if (key_is(it, "ng1.shots")) return s_present_rate > 60 && s_glide;
     return 1;
 }

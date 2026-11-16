@@ -161,3 +161,21 @@ is "too fast / uneven" at the fence; Ryu looks slightly uneven.
   piece of last frame and uses the step most pieces agree on (70%).
 - Harness (Acts 1-6, palette-0 pieces): uneven pictures 3.3% -> 1.4%, mean step change
   0.033 -> 0.016 px. Lantern drift 777 -> 723 px.
+
+## Third play test: "way better", Ryu great running; starts still a slight flash on fences
+
+- Cause: the game's camera goes 0 -> 1.5 px/frame in one frame; at 240 pictures/s the
+  fine 1-px fence patterns show the sudden speed change.
+- New menu row Smooth motion -> "Camera easing" ([Game] CameraEasing): 0 Quick (the old
+  4-step average, starts at full speed), 1 Gentle (default), 2 Softest. Gentle/Softest:
+  the SCENERY follows the moving average of the camera's last 6/8 positions: starts and
+  stops ramp over 6/8 frames, a run is exactly 1.5 px/frame (1,2,1,2 averages out), at
+  most 4/5.5 px behind (edge crop). Characters keep the quick easing (with Gentle on
+  characters too, a fast enemy was drawn 13 px / 2.5 frames behind its real spot).
+- A new scroll band starts at rest; an unmatched (just appeared) sprite moves with the
+  scenery band under it (+ sprite-camera lead if its tile lags), instead of jumping when
+  matched a frame later.
+- Harness, Act 1 start at the fence (px/frame): Quick 1.68 1.32 1.68...; Gentle 0.32 0.48
+  0.84 1.0 1.32 1.52 1.52; stop: Gentle 1.52 1.16 1.0 0.68 ... Ryu uneven 1.4% -> 1.0%,
+  lanterns unchanged (591 px drift). Death/transition frames (scroll 0 for one frame) give
+  a few 1-4 px picture jumps in Gentle (13 in the recording): left as is.
