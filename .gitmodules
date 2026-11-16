@@ -1,0 +1,7 @@
+[submodule "nesrecomp"]
+	path = nesrecomp
+	url = https://github.com/gabbycat4/nesrecomp.git
+	branch = dd2-240hz
+[submodule "recomp-ui"]
+	path = recomp-ui
+	url = https://github.com/mstan/recomp-ui.git

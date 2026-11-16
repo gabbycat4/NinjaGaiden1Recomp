@@ -1,0 +1,196 @@
+# Builds the downloadable game for Windows (zip) and Linux (AppImage).
+#
+# - "Run workflow" on the Actions tab: test build; the files appear as
+#   artifacts at the bottom of the run's page.
+# - Pushing a tag such as v1.0.0: the same build, published as a GitHub
+#   Release with both files attached.
+#
+# The ROM comes from the NG1_ROM_* repository secrets
+# (tools/release/upload-rom-secret.sh). It is needed only to generate the
+# code; it is never put in a download, and the release jobs check that.
+name: Release builds
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  SDL_VERSION: '2.32.10'
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Restore the ROM from secrets
+        shell: bash
+        run: |
+          cat > rom.b64 <<'NG1_ROM_EOF'
+          ${{ secrets.NG1_ROM_0 }}
+          ${{ secrets.NG1_ROM_1 }}
+          ${{ secrets.NG1_ROM_2 }}
+          ${{ secrets.NG1_ROM_3 }}
+          ${{ secrets.NG1_ROM_4 }}
+          ${{ secrets.NG1_ROM_5 }}
+          ${{ secrets.NG1_ROM_6 }}
+          ${{ secrets.NG1_ROM_7 }}
+          NG1_ROM_EOF
+          python tools/release/restore_rom.py ninjagaiden.nes rom.b64
+          rm -f rom.b64
+
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DNESRECOMP_GAME_VERSION="${{ github.ref_name }}"
+          -DNESRECOMP_BUILD_REVISION="${{ github.sha }}"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package
+        shell: bash
+        run: |
+          rm -f ninjagaiden.nes
+          out=NinjaGaiden1Recomp
+          mkdir -p "$out"
+          cp build/Release/ng1recomp.exe build/Release/*.dll "$out/"
+          cp -R build/Release/assets "$out/"
+          cp packaging/windows/README.txt "$out/"
+          bash tools/release/collect_licenses.sh "$out/licenses"
+          if find "$out" -iname '*.nes' | grep -q .; then echo "ROM in package" >&2; exit 1; fi
+          ls -R "$out"
+          7z a -tzip NinjaGaiden1Recomp-Windows-x64.zip "$out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NinjaGaiden1Recomp-Windows-x64
+          path: NinjaGaiden1Recomp-Windows-x64.zip
+
+  linux:
+    # The oldest supported runner: the AppImage then runs on any distribution
+    # at least as new as Ubuntu 22.04 (glibc 2.35).
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build patchelf file \
+            libgl-dev libopengl-dev libglx-dev libegl-dev libgles-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev \
+            libxi-dev libxss-dev libxinerama-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev
+
+      # A current SDL2 (better Wayland, PipeWire and controller support than
+      # Ubuntu 22.04's), built so it loads X11/Wayland/audio at run time.
+      - name: Build SDL2
+        run: |
+          git clone --depth 1 --branch "release-$SDL_VERSION" https://github.com/libsdl-org/SDL.git "$RUNNER_TEMP/SDL"
+          cmake -S "$RUNNER_TEMP/SDL" -B "$RUNNER_TEMP/SDL/build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/sdl2" \
+            -DSDL_STATIC=OFF -DSDL_SHARED=ON -DSDL_TEST=OFF
+          cmake --build "$RUNNER_TEMP/SDL/build"
+          cmake --install "$RUNNER_TEMP/SDL/build"
+
+      - name: Restore the ROM from secrets
+        shell: bash
+        run: |
+          cat > rom.b64 <<'NG1_ROM_EOF'
+          ${{ secrets.NG1_ROM_0 }}
+          ${{ secrets.NG1_ROM_1 }}
+          ${{ secrets.NG1_ROM_2 }}
+          ${{ secrets.NG1_ROM_3 }}
+          ${{ secrets.NG1_ROM_4 }}
+          ${{ secrets.NG1_ROM_5 }}
+          ${{ secrets.NG1_ROM_6 }}
+          ${{ secrets.NG1_ROM_7 }}
+          NG1_ROM_EOF
+          python tools/release/restore_rom.py ninjagaiden.nes rom.b64
+          rm -f rom.b64
+
+      # FreeType/HarfBuzz are left out (emoji stay outline glyphs) so the
+      # program needs nothing beyond SDL2, OpenGL and the C/C++ runtimes.
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/sdl2"
+          -DSDL2_DIR="$RUNNER_TEMP/sdl2/lib/cmake/SDL2"
+          -DCMAKE_DISABLE_FIND_PACKAGE_Freetype=ON
+          -DNESRECOMP_GAME_VERSION="${{ github.ref_name }}"
+          -DNESRECOMP_BUILD_REVISION="${{ github.sha }}"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Package AppImage
+        run: |
+          rm -f ninjagaiden.nes
+          app=AppDir
+          mkdir -p "$app/usr/bin" "$app/usr/lib"
+          cp build/ng1recomp "$app/usr/bin/"
+          strip "$app/usr/bin/ng1recomp"
+          cp -R build/assets "$app/usr/bin/"
+          cp -L "$RUNNER_TEMP/sdl2/lib/libSDL2-2.0.so.0" "$app/usr/lib/"
+          patchelf --set-rpath '$ORIGIN/../lib' "$app/usr/bin/ng1recomp"
+          bash tools/release/collect_licenses.sh "$app/usr/share/doc/ng1recomp"
+          cp packaging/linux/AppRun "$app/AppRun"
+          chmod +x "$app/AppRun"
+          cp packaging/linux/ng1recomp.desktop packaging/linux/ng1recomp.png "$app/"
+          ln -s ng1recomp.png "$app/.DirIcon"
+          echo "${{ github.ref_name }}-${{ github.sha }}" > "$app/VERSION"
+          echo "Libraries the game needs:"
+          readelf -d "$app/usr/bin/ng1recomp" | grep -E 'NEEDED|RUNPATH|RPATH'
+          if find "$app" -iname '*.nes' | grep -q .; then echo "ROM in package" >&2; exit 1; fi
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run "$app" NinjaGaiden1Recomp-x86_64.AppImage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NinjaGaiden1Recomp-x86_64.AppImage
+          path: NinjaGaiden1Recomp-x86_64.AppImage
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          gh release create "${{ github.ref_name }}" \
+            --title "Ninja Gaiden Recompiled ${{ github.ref_name }}" \
+            --notes-file packaging/RELEASE_NOTES.md \
+            dist/NinjaGaiden1Recomp-Windows-x64.zip dist/NinjaGaiden1Recomp-x86_64.AppImage

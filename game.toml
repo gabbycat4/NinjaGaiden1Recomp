@@ -1,0 +1,4 @@
+[game]
+output_prefix = "ng1"
+name = "Ninja Gaiden"
+cycle_accurate = true

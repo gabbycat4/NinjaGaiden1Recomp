@@ -1,0 +1,52 @@
+# Ninja Gaiden (NES) recomp - notes
+
+## Phase 1: the game (2026-11-15)
+
+ROM file:   ninjagaiden.nes  (use this same file in Mesen and everywhere else)
+Title:      Ninja Gaiden (USA)   (GoodNES name: Ninja Gaiden (U) [!])
+SHA-1:      ca513f841d75efeb33bb8099fb02beeb39f6bb9c   (whole file, header included)
+MD5:        0c2cccda6ba6cab7bede0ff05e7f6852
+CRC32:      11f953f6 (whole file), 7c4a72d8 (without the 16-byte header)
+SHA-1 without header: 15f245161179ab1959b7dc20e82add024d23aa3d
+Verified:   matches the "Good" USA version TASVideos lists for Ninja Gaiden (SHA-1 CA513F84...).
+
+Header:     4e 45 53 1a 08 10 10 00 ... (iNES 1.0)
+PRG:        128 KB (8 x 16 KB)
+CHR:        128 KB CHR ROM (not CHR RAM, unlike Contra/BOS)
+Mapper:     1 = MMC1, board SLROM (128K PRG + 128K CHR). First MMC1 game of the series
+            (DD2/NG2 = MMC3, BOS/Contra = UxROM).
+Mirroring:  set by the mapper (header bit 0 = 0); no battery, no trainer.
+Engine:     MMC1 is supported (MAPPERS.md: "MMC1 board wiring"; mapper 1 is one of the
+            core titles checked). Note from MAPPERS.md: native code falls back to the
+            interpreter only while unequal CHR registers can change PRG mid-instruction
+            (a SUROM/SXROM thing; not expected on SLROM).
+Engine checkout: ~/Projects/nesrecomp on dd2-240hz at 826fbbf (thread pinning) - good.
+
+## Things to expect (from the ROM, to confirm in Phase 5)
+
+- HUD split by SPRITE 0 HIT, not a scanline IRQ (MMC1 has no IRQ). The ROM polls
+  $2002 bit 6 (wait for clear, then wait for set) at three places:
+  bank 4 $8250, bank 7 $F198 and bank 7 $F5A2. Likely gameplay HUD at the TOP
+  (like NG2's split at line 48) plus the cinema scenes.
+- Only 7 writes to $2005 in the first 128 KB scan: a small scroll routine, easy to
+  follow in scroll.log.
+- CHR ROM banked 4 KB at a time: cinema scenes may switch CHR mid-frame (NG2's
+  cinema scenes did; left them untouched there).
+- Flicker: the original game flickers sprites when more than 8 share a line (seen even
+  on a CRT). Fixed by "No sprite flicker" (Phase 6 #2). Check whether it rotates or
+  reverses OAM (NG2 rotated every frame).
+- Uneven scrolling / enemy steps: NG2 had the camera on 1,2,1,2 and soldiers on 0/1 px
+  steps. Expect the same family of code here; NG2's eased camera, bands kept 30 frames
+  and eased glide are the fixes to start from (Contra's extras include them).
+
+## Phase 2: project from the Contra template (2026-11-15)
+
+- Names: ng1recomp (exe), src/ng1_extras.c, NG1_ROM, game.toml output_prefix "ng1",
+  window title "Ninja Gaiden". PLAYERS 1 (Contra had 2). Menu keys ng1.*.
+- Copied: CMakeLists.txt, .gitignore, LICENSE, NOTICE, src, tools, packaging, release.yml.
+  restore_rom.py expects SHA-256 (no header) 6799437d4122b81c86ae35cefe5b6ae6e10e6f9a9c7b3140dd569f717ba32b3d.
+- Still from Contra, to redo later: packaging/linux/ng1recomp.png (the icon),
+  tools/make_routes.py (Konami code; NG1 has no cheat code), comments in ng1_extras.c
+  that describe NG2/Contra stages, the "Steady shots" menu text (does NG1 blink shots?).
+- ng1_extras.c compile-checks clean with gcc -Wall -Wextra.
+- Pins: nesrecomp 826fbbf, recomp-ui c099b88.

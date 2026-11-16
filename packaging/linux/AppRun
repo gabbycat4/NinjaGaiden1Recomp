@@ -1,0 +1,23 @@
+#!/bin/sh
+# NinjaGaiden1Recomp AppImage entry point.
+#
+# The game keeps config.ini, rom.cfg (your ROM's location) and saves beside its
+# program, and an AppImage is read-only. So the program is copied once per
+# version to ~/.local/share/NinjaGaiden1Recomp and run from there; your settings and
+# saves in that folder are kept across updates.
+HERE="$(dirname "$(readlink -f "$0")")"
+DATA="${NG1RECOMP_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/NinjaGaiden1Recomp}"
+VERSION="$(cat "$HERE/VERSION")"
+
+if [ "$(cat "$DATA/VERSION" 2>/dev/null)" != "$VERSION" ] || [ ! -x "$DATA/bin/ng1recomp" ]; then
+    mkdir -p "$DATA/bin" || exit 1
+    rm -rf "$DATA/bin/assets" "$DATA/lib"
+    cp -R "$HERE/usr/lib" "$DATA/lib" &&
+    cp -R "$HERE/usr/bin/assets" "$DATA/bin/assets" &&
+    cp -f "$HERE/usr/bin/ng1recomp" "$DATA/bin/ng1recomp.new" &&
+    mv -f "$DATA/bin/ng1recomp.new" "$DATA/bin/ng1recomp" &&
+    cp -f "$HERE/VERSION" "$DATA/VERSION" || exit 1
+fi
+
+cd "$DATA/bin" || exit 1
+exec "$DATA/bin/ng1recomp" "$@"

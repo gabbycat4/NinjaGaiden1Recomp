@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Ninja Gaiden Recompiled
+Comment=Native PC port of Ninja Gaiden (NES) with 240 Hz smooth motion; needs your own ROM
+Exec=ng1recomp
+Icon=ng1recomp
+Categories=Game;ActionGame;
+Terminal=false
