@@ -1,25 +1,26 @@
 # NINJA GAIDEN - NEXT STEPS (run in fish, one block at a time)
 # ============================================================
-# Done: git + pins, headless build, probe, harvest route = 100% native (Stage 1-1 only).
+# Done: harvest from your play (seeds 4,949 -> 7,208). Fix for the garbled cutscenes is in
+# src/ng1_extras.c (show the NES's own picture when the sprites' graphics bank changes
+# mid-frame).
 #
-# 1) Save the step
+# 1) Save the seeds and the fix
 cd ~/Projects/NinjaGaiden1Recomp
-git add -A; git commit -m "Ninja Gaiden: harvest route (Stage 1-1), seeds, first measurements"
+git add -A; git commit -m "Ninja Gaiden: seeds from real play; cutscenes with mid-frame CHR shown as the NES drew them"
 
-# 2) Window build (Phase 4)
+# 2) Rebuild both builds (new seeds + the fix)
 cd ~/Projects/NinjaGaiden1Recomp
-cmake -S . -B build-play -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-headless --parallel
 cmake --build build-play --parallel
-./build-play/ng1recomp ninjagaiden.nes
 
-# 3) Play! Every session is recorded in build-play/diagnostics (nothing to switch on).
-#   Get as far as you can: every act, the bosses, the cutscenes between acts, and the
-#   ending if you get there. Save states (F7) are fine to get past the hard parts.
-#   The smooth-motion settings are still Contra's, untuned for this game: just play,
-#   and tell Claude anything that looks wrong (a phone video helps for flicker).
-#   Escape / R1 = menu, F11 fullscreen, F7 save states, Tab fast forward.
-
-# 4) After playing: replay the recordings headless to harvest the new code
+# 3) Measure your whole recorded play (221 pieces, headless, ~10-20 min; 4 at a time).
+#   Gives Claude every frame's scroll / sprites / self-check, act by act.
+#   (The folder is given by name: the newest one is the run you closed early.)
 cd ~/Projects/NinjaGaiden1Recomp
-python -I ~/Projects/nesrecomp/tools/cyc/replay_diagnostic.py build-play/diagnostics --exe build-play/ng1recomp --rom ninjagaiden.nes --keep-going --host-arg=--miss-log --host-arg=$HOME/Projects/NinjaGaiden1Recomp/seeds.txt
-#   Then tell Claude: Claude counts the "miss-log: N ROM addresses" lines; N > 0 = rebuild.
+python -I tools/segment_logs.py build-play/diagnostics/replay-20261115-204804 --jobs 4
+#   Tell Claude when it says "all segments ran" (or paste what it says instead).
+
+# 4) Meanwhile or after: check the cutscenes in the window (Act 1 ending, the "lunar
+#   eclipse" scene, the credits). They should look like the NES now: no letters over faces.
+cd ~/Projects/NinjaGaiden1Recomp
+./build-play/ng1recomp ninjagaiden.nes

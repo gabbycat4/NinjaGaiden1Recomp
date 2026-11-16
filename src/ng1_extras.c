@@ -922,6 +922,11 @@ static void present_phase(void *ctx, double phase)
     s_phase = phase;
 }
 
+enum { MIDCHR_HOLD = 30 };
+static int s_midchr_hold;   /* frames left showing the NES's own picture (mid-frame CHR) */
+
+static int sprite_check(int *lines);
+
 static void prepare(void)
 {
     s_prepared = s_frame;
@@ -929,6 +934,18 @@ static void prepare(void)
     if (!grab_native()) return;
     if (count_bands() >= CINEMA_BANDS) return;           /* cinema: as the NES drew it */
     bool smooth = (s_present_rate > 60 && s_nband > 0) || shake_active();
+    /* Ninja Gaiden's cinema scenes are letterboxed (few bands) but switch the
+     * sprites' CHR bank mid-frame (picture sprites, then the text's font): a
+     * redraw from the frame-end CHR shows font tiles over the picture. The
+     * self-check (the game's order must reproduce the NES picture on lines
+     * with 8 sprites or fewer) catches it; 0 mismatches on every Stage 1-1
+     * frame of the route. On a mismatch, show the NES's picture for 30 frames. */
+    if (s_unlimit || smooth) {
+        int lines, bad = sprite_check(&lines);
+        if (bad > 0) s_midchr_hold = MIDCHR_HOLD;
+        else if (s_midchr_hold > 0) --s_midchr_hold;
+        if (s_midchr_hold > 0) return;
+    }
     if (s_unlimit || smooth) s_have_comp = compose(s_unlimit ? s_order : 0);
     if (s_have_comp && smooth) snapshot_sprites();
 }
