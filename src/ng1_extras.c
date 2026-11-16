@@ -291,7 +291,7 @@ static int    s_band_dx[MAX_PF_BANDS];
  * the recorded play: the speed's frame-to-frame change drops from ~0.75 to
  * ~0.13 px, at most ~3 px behind. */
 enum { EASE_N = 4 };
-typedef struct { double x, d0, v; double hist[EASE_N]; bool valid; } BandMotion;
+typedef struct { double x, d0, v; double hist[EASE_N]; bool valid; double run; } BandMotion;
 static BandMotion s_bm[MAX_PF_BANDS], s_bm_prev[MAX_PF_BANDS];
 /* Up and down, the same way (Contra's Waterfall: the camera climbs after
  * the player with the game's own slowing steps 3,3,2,2,2,1,1,0,1,0 px and
@@ -311,11 +311,23 @@ static void ease_band(BandMotion *m, double d, bool jump)
          * with no history - the stage start, after a respawn or a cinema
          * scene - jerked back 2 px before moving: the 1-1 fence flashed.) */
         m->d0 = 0;
-        for (int i = 0; i < EASE_N; ++i) m->hist[i] = jump ? 0 : d;
+        double sp = fabs(d) <= 2 ? 1.5 : fabs(d);  /* at running speed (see below) */
+        for (int i = 0; i < EASE_N; ++i) m->hist[i] = jump || d == 0 ? 0 : d > 0 ? sp : -sp;
         m->valid = true;
         if (jump) { m->v = 0; return; }
     } else {
         m->d0 += m->v;                             /* where last frame's pictures ended */
+        /* Starting from rest: Ninja Gaiden's camera (and Ryu) go from 0 to
+         * full speed (1.5 px a frame, 1,2,1,2) at once. Averaged with the
+         * zeros before it, the picture crept off (0.7, 1.0 px a frame), fell
+         * behind, then overshot to 1.73 and wobbled 1.6/1.7 for ~10 frames
+         * catching up: the fence looked jarring at every start. So a start
+         * begins at the last run's speed (1.5 the first time). */
+        bool rest = m->hist[EASE_N - 1] == 0 && fabs(m->x - m->d0) < 0.01;   /* stopped, picture caught up */
+        if (rest && d != 0) {
+            double sp = m->run > 0 ? m->run : (fabs(d) <= 2 ? 1.5 : fabs(d));
+            for (int i = 0; i < EASE_N; ++i) m->hist[i] = d > 0 ? sp : -sp;
+        }
     }
     m->x += d;
     for (int i = 0; i < EASE_N - 1; ++i) m->hist[i] = m->hist[i + 1];
@@ -323,6 +335,11 @@ static void ease_band(BandMotion *m, double d, bool jump)
     double avg = 0;
     for (int i = 0; i < EASE_N; ++i) avg += m->hist[i];
     avg /= EASE_N;
+    {   /* remember a steady run's speed (all 4 steps one way) */
+        bool same = true;
+        for (int i = 0; i < EASE_N; ++i) same = same && m->hist[i] != 0 && (m->hist[i] > 0) == (m->hist[0] > 0);
+        if (same && !jump) m->run = fabs(avg);
+    }
     double e = m->x - m->d0;                       /* how far the picture is behind the game */
     double v = avg + EASE_GAIN * (e - avg);
     if (e >= 0) v = v < 0 ? 0 : v > e ? e : v;    /* never past the game's position */
@@ -769,7 +786,8 @@ static void glide_frame(bool on, int dx, int dy)
                  * position: the nearest sprite of last frame, any tile, near
                  * each piece; if they carry a motion state, it keeps gliding
                  * at that speed through the change. */
-                int pieces = 0, found = 0;
+                int pieces = 0, found = 0, nstep = 0;
+                int stx[64], sty[64];                     /* each piece's step to its nearest */
                 for (int i = 0; i < nv; ++i) {
                     if (gl_find(parent, i) != r) continue;
                     ++pieces;
@@ -783,6 +801,10 @@ static void glide_frame(bool on, int dx, int dy)
                         int d = abs(ex) + abs(ey) + pv->age * 4;
                         if (d < bd) { bd = d; bj = j; }
                     }
+                    if (bj >= 0 && !s_gl_prev[bj].age) {
+                        stx[nstep] = o[3] - s_gl_prev[bj].x + dx;
+                        sty[nstep++] = o[0] - s_gl_prev[bj].y + dy;
+                    }
                     if (bj >= 0 && s_gl_prev_m[bj].valid) {
                         ++found;
                         used[bj] = true;
@@ -792,6 +814,23 @@ static void glide_frame(bool on, int dx, int dy)
                 if (!bm.valid || found * 2 < pieces) continue;
                 sx = motion_speed(&bm);
                 sy = bmy.valid ? motion_speed(&bmy) : 0;
+                /* Most pieces agree on the step to where a piece was last
+                 * frame: that is the step. Ryu running: his body keeps its
+                 * tiles and screen spot, his legs change tiles every 4
+                 * frames; only 2 of 4-5 pieces matched by tile, so his step
+                 * was guessed from his average speed (1.33, the camera does
+                 * 1.5) and he popped 0.65 px every 4 frames. */
+                int best = 0, bk = -1;
+                for (int a = 0; a < nstep; ++a) {
+                    int k = 0;
+                    for (int b2 = 0; b2 < nstep; ++b2) k += stx[b2] == stx[a] && sty[b2] == sty[a];
+                    if (k > best) { best = k; bk = a; }
+                }
+                if (bk >= 0 && nstep * 2 > pieces && best * 100 >= nstep * GL_AGREE) {
+                    sx = stx[bk];
+                    sy = sty[bk];
+                    if (lg.lag) sx = stx[bk] - dx + s_spr_step;   /* on the sprite camera */
+                }
             }
             ease_band(&bm, sx, false);
             ease_band(&bmy, sy, false);

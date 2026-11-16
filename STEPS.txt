@@ -1,15 +1,14 @@
 # NINJA GAIDEN - NEXT STEPS (run in fish, one block at a time)
 # ============================================================
-# Fixed (tested offline on your recorded play with tools/glide_harness.c):
-#   - lanterns: follow the game's "sprite camera", never group with Ryu (drift -82%)
-#   - the fence flash: scrolling from rest no longer jerks back 2 px first
+# Fixed (tested offline on your recorded play):
+#   - scrolling from a stop starts at running speed (no slow start + overshoot)
+#   - Ryu: no 0.65 px pop every 4 frames when his legs change pose
 #
 # 1) Save and rebuild
 cd ~/Projects/NinjaGaiden1Recomp
-git add -A; git commit -m "Ninja Gaiden: lanterns follow the sprite camera; no jerk back when scrolling starts; NG1 glide harness"
+git add -A; git commit -m "Ninja Gaiden: scrolling starts at running speed; Ryu's step measured through pose changes"
 cmake --build build-play --parallel
 
-# 2) Play: Act 1 start (the fence), the lanterns (walk past them, stop next to them)
+# 2) Play: the 1-1 fence (stop and go), watch Ryu running
 cd ~/Projects/NinjaGaiden1Recomp
 env CYC_PACING_LOG=pacing.log mangohud ./build-play/ng1recomp ninjagaiden.nes
-#   Tell Claude how the fence and the lanterns look now - and the "one more thing".

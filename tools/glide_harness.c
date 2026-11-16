@@ -35,6 +35,8 @@ const uint8_t *cyc_frame_bg_opaque(void){static uint8_t z[256*240];return z;}
 #include "ng1_extras.c"
 
 typedef struct { int key; long wc, wp; double drawn; bool have, seen, still; } Track;
+typedef struct { int key; double last, step; bool hs; long f; } RTrack;
+static RTrack ry[64]; static int nry; static long rpics, rbad; static double rsum;
 int main(int argc,char**argv){
   if(argc<3){fprintf(stderr,"usage: gh OAM SCROLL [lag] [v]\n");return 2;}
   FILE*fo=fopen(argv[1],"r"),*fs=fopen(argv[2],"r"); if(!fo||!fs){perror("open");return 1;}
@@ -95,9 +97,29 @@ int main(int argc,char**argv){
         tr[t].drawn=w; tr[t].seen=true;
       }
     }
+    /* Ryu: palette 0, not item tiles, lines 80-200; per piece key: drawn screen X per picture */
+    for(int ph=0; ph<4; ++ph){
+      double phase=ph/4.0;
+      for(int sl=1;sl<64;sl++){const uint8_t*o=H_oam+sl*4;
+        if(o[0]>=0xEF||(o[2]&3)||(o[1]>=0xED&&o[1]<=0xFB)||o[0]<80||o[0]>200)continue;
+        int key=(o[1]<<8)|o[2], dup=0;
+        for(int j=1;j<64;j++) if(j!=sl&&H_oam[j*4]<0xEF&&H_oam[j*4+1]==o[1]&&H_oam[j*4+2]==o[2]) dup=1;
+        if(dup)continue;
+        double gx,gy; sprite_glide_offset(sl,phase,&gx,&gy);
+        double sx=o[3]+gx;
+        int t=-1; for(int i=0;i<nry;i++) if(ry[i].key==key){t=i;break;}
+        if(t<0){ if(nry<64){ry[nry]=(RTrack){key,sx,0,false,f};nry++;} continue; }
+        if(ry[t].f < f-1){ ry[t]=(RTrack){key,sx,0,false,f}; continue; }
+        double st=sx-ry[t].last;
+        if(fabs(st)>4){ ry[t]=(RTrack){key,sx,0,false,f}; continue; }
+        if(ry[t].hs && s_cam_dx!=0){ double ch=fabs(st-ry[t].step); rpics++; rsum+=ch; if(ch>0.25){ rbad++; if(getenv("GH_RYU")) printf("  R %ld.%d t%02x a%02x x%3d gx%+.2f step%+.2f prev%+.2f lag%d lead%d spd%.2f cam%+d\n",f,ph,o[1],o[2],o[3],gx,st,ry[t].step,s_glag[sl].lag,s_lagshift[sl],s_gm[sl].valid?motion_speed(&s_gm[sl]):99,s_cam_dx);} }
+        ry[t].last=sx; ry[t].step=st; ry[t].hs=true; ry[t].f=f;
+      }
+    }
     /* drop items not seen this frame */
     int k=0; for(int i=0;i<ntr;i++) if(tr[i].seen) tr[k++]=tr[i]; ntr=k;
   }
+  printf("ryu: pictures %ld, uneven (step change > 0.25 px) %ld, mean step change %.3f px\n", rpics, rbad, rpics? rsum/rpics:0);
   printf("lag %d: frames %ld, still item-frames %ld, pictures %ld, moved >0.3 px vs scenery: %ld, total drift %.1f px\n",
          s_lag_enable, frames, still, pics, shaky, wob);
   return 0;
