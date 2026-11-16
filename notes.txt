@@ -104,3 +104,38 @@ Engine checkout: ~/Projects/nesrecomp on dd2-240hz at 826fbbf (thread pinning) -
 - No every-other-frame blinkers (<= 4%, the hit blink): Steady shots not needed (harmless).
 - Flashes: none in gameplay. The background goes black for a moment in cutscenes only;
   the 5-3 lightning is drawn graphics, not a palette flash. Nothing to soften.
+
+## First play test at 240 (2026-11-15)
+
+- Bug (mine): prepare() ran the self-check, which marks the frame unprepared, so present()
+  gave up on every picture: plain NES picture at 240, no smoothing, no flicker fix.
+  Fixed (s_prepared set again after the check). Pacing: emulation ~10.2 ms median,
+  [later] on most frames -> Second core On. MangoHud flat at 240.
+- User after the fix: "darn near perfect". Two things:
+  1) The 1-1 fence "flashes" when scrolling starts/stops.
+  2) The item lanterns shake (like NG2's red power-ups).
+
+### Lanterns: the sprite camera (fixed)
+- NG1 places objects (lanterns, Ryu, ...) with a SPRITE camera that is the same
+  half-pixel camera rounded the other way: over a run it steps as the scenery did the
+  frame before (1,2,1,2 vs 2,1,2,1); from rest it makes the other step (scenery 1 -> 2,
+  2 -> 1); stopping, it stops with the scenery (a frame later after a single step).
+  Rule checked on every still-lantern frame: right 3,135, wrong 30 (prev-frame camera
+  alone: wrong 134). On the NES a still lantern wobbles 1 px against the scenery.
+- Glide: per character, score which camera gives a steadier world motion (GlLag);
+  lagging characters move by their step on the sprite camera and are drawn the sprite
+  camera's lead (s_spr_lead) further. Each tile remembers its answer (s_tile_lag), so a
+  lantern scrolling into view starts corrected.
+- Ryu and the lanterns share palette 0 and touch: grouped as one character, the lantern
+  took Ryu's motion. Now: lagging and non-lagging pieces never group, and item tiles
+  $ED-$FB only group with each other.
+- tools/glide_harness.c rewritten for NG1 (HUD split at 56): lantern drift vs the
+  scenery at 240 over the whole recording: 4,941 px -> 892 px (-82%); pictures moving
+  > 0.3 px: 2,615 -> 610.
+
+### Fence flash at scroll starts (fixed)
+- ease_band() started a band with no history (stage start, respawn, after a cinema scene)
+  TWO steps behind (d0 = -d, then x += d), so the scenery jerked back 2 px before moving.
+  Now d0 = 0 (one step behind = where the last picture was). Whole recording: pictures
+  moving against the camera 243 -> 157, of which more than 1 px: 41 -> 0.
+  (This bug is in ContraRecomp/NG2's extras too.)

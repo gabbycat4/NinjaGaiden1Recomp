@@ -305,7 +305,12 @@ static void ease_band(BandMotion *m, double d, bool jump)
 {
     if (jump || !m->valid) {
         m->x = 0;
-        m->d0 = jump ? 0 : -d;                     /* new: one step behind, at speed */
+        /* new: where the last picture was (the game's previous position),
+         * one step behind, at speed. (Was -d: with x += d below that put it
+         * two steps behind, and a band that started scrolling from rest
+         * with no history - the stage start, after a respawn or a cinema
+         * scene - jerked back 2 px before moving: the 1-1 fence flashed.) */
+        m->d0 = 0;
         for (int i = 0; i < EASE_N; ++i) m->hist[i] = jump ? 0 : d;
         m->valid = true;
         if (jump) { m->v = 0; return; }
@@ -511,7 +516,66 @@ static int  s_shots_saved = 1, s_shots = 1;
 static int      s_gl_prev_n, s_gliding;
 static int8_t   s_gdx[64], s_gdy[64];    /* per slot: its character's movement in the world this frame */
 static bool     s_gl_ok[64];
+/* Camera lag. Ninja Gaiden places some objects (the item lanterns, tiles
+ * $ED-$FB, and others) with the PREVIOUS frame's camera: the camera steps
+ * 1,2,1,2 and a lantern standing still moves -2,-1,-2,-1 on screen, so on
+ * the NES it wobbles 1 px against the scenery (measured: 1,182 sprite runs
+ * smoother with last frame's camera, 944 with this frame's). Per character:
+ * score which camera makes its world motion steadier; a lagging one moves
+ * by its step with last frame's camera and is drawn this frame's step
+ * further (where the game would put it with the current camera). */
+typedef struct { int8_t score, last_cur, last_prev; bool have, lag; } GlLag;
+enum { LAG_ON = 3, LAG_OFF = -3, LAG_MAX = 6 };
+static GlLag    s_gl_prev_lag[GL_MAX], s_glag[64];
+static int8_t   s_lagshift[64];          /* per slot: px to add on screen (lagging: the sprite camera's lead) */
+static int      s_gl_dx1, s_gl_dx2;      /* the camera's steps 1 and 2 frames ago */
+static int      s_spr_step, s_spr_lead;  /* the sprite camera's step, and how far it is from the scenery's */
+/* The sprite camera: the same half-pixel camera rounded the other way. Over
+ * a run it steps as the scenery did the frame before (1,2,1,2 against
+ * 2,1,2,1); starting from rest it makes the other step (scenery 1 -> 2,
+ * 2 -> 1); stopping, it stops with the scenery after a run, a frame later
+ * after a single step. Checked on every frame a lantern stood still in the
+ * recorded play: right 3,135 times, wrong 30 (the previous-frame camera
+ * alone: wrong 134). */
+static int sgn(int v) { return (v > 0) - (v < 0); }
+static int sprite_cam_step(int d2, int d1, int d0)
+{
+    if (d0 && d1) return d1;
+    if (d0) return d2 == 0 && (abs(d0) == 1 || abs(d0) == 2) ? 3 * sgn(d0) - d0 : 0;
+    if (d1) return d2 == 0 ? d1 : 0;
+    return 0;
+}
+static int s_lag_enable = 1;             /* tools/glide_harness.c compares with 0 */
+/* What each tile (and palette) was last decided to be: a lantern that
+ * scrolls into view starts with its tile's answer instead of wobbling for
+ * the 3 frames it takes to tell (the item tiles always lag). */
+static int8_t s_tile_lag[256][4];
+static void lag_prior(GlLag *g, const uint8_t *o)
+{
+    if (g->have) return;
+    g->score = s_tile_lag[o[1]][o[2] & 3];
+    g->lag = g->score >= LAG_ON;
+}
+static void lag_remember(const GlLag *g, const uint8_t *o) { s_tile_lag[o[1]][o[2] & 3] = g->score; }
+static void lag_update(GlLag *g, int mcur, int mprev, bool moving)
+{
+    if (!s_lag_enable) moving = false;
+    if (g->have && moving) {
+        int rc = abs(mcur - g->last_cur), rp = abs(mprev - g->last_prev);
+        if (rp < rc && g->score < LAG_MAX) ++g->score;
+        else if (rc < rp && g->score > -LAG_MAX) --g->score;
+        if (g->score >= LAG_ON) g->lag = true;
+        else if (g->score <= LAG_OFF) g->lag = false;
+    }
+    g->last_cur = (int8_t)mcur;
+    g->last_prev = (int8_t)mprev;
+    g->have = true;
+}
 
+/* Ninja Gaiden's item lanterns are tiles $ED-$FB (palette 0, like Ryu, who
+ * is on the sprite camera too): they only ever group with each other, so a
+ * lantern Ryu walks past never takes his motion. */
+static bool item_tile(uint8_t t) { return t >= 0xED && t <= 0xFB; }
 static int gl_find(int *parent, int i) { while (parent[i] != i) i = parent[i] = parent[parent[i]]; return i; }
 /* Two pieces of one character: touching, in the same palette. Ryu
  * (purple), his shadow clones (orange) and a lantern (red) can overlap but
@@ -557,8 +621,13 @@ static void glide_frame(bool on, int dx, int dy)
     memset(s_gl_ok, 0, sizeof(s_gl_ok));
     memset(s_gm, 0, sizeof(s_gm));
     memset(s_gmy, 0, sizeof(s_gmy));
+    memset(s_glag, 0, sizeof(s_glag));
+    memset(s_lagshift, 0, sizeof(s_lagshift));
     s_gliding = 0;
     bool used[GL_MAX] = { false };
+    bool cam_moving = dx != 0 || s_gl_dx1 != 0;
+    s_spr_step = on ? sprite_cam_step(s_gl_dx2, s_gl_dx1, dx) : 0;
+    s_spr_lead = on ? clampi(s_spr_lead + s_spr_step - dx, -3, 3) : 0;
     bool s_solid[64];                /* per visible sprite: not a particle */
     int  s_from[64];                 /* per visible sprite: its match in s_gl_prev, or -1 */
     for (int i = 0; i < 64; ++i) { s_solid[i] = true; s_from[i] = -1; }
@@ -607,10 +676,21 @@ static void glide_frame(bool on, int dx, int dy)
             s_solid[i] = solid[i];
             s_from[i] = from[i];
         }
+        /* Lagging and current-camera pieces are never one character: Ryu
+         * and the lanterns share palette 0, and when he passed one they were
+         * grouped, the lantern took his motion and lost its camera lag
+         * (it jumped 1-2 px as he walked by). */
+        bool lagp[64];
+        for (int i = 0; i < nv; ++i) {
+            const uint8_t *o = oam + vis[i] * 4;
+            const GlLag *pl = has[i] ? &s_gl_prev_lag[from[i]] : NULL;
+            lagp[i] = pl && pl->have ? pl->lag : s_tile_lag[o[1]][o[2] & 3] >= LAG_ON;
+        }
         for (int i = 0; i < nv; ++i) parent[i] = i;
         for (int i = 0; i < nv; ++i)
             for (int j = i + 1; j < nv; ++j)
-                if (solid[i] && solid[j] && touching(oam + vis[i] * 4, oam + vis[j] * 4, h))
+                if (solid[i] && solid[j] && lagp[i] == lagp[j] && item_tile(oam[vis[i] * 4 + 1]) == item_tile(oam[vis[j] * 4 + 1]) &&
+                    touching(oam + vis[i] * 4, oam + vis[j] * 4, h))
                     parent[gl_find(parent, i)] = gl_find(parent, j);
         for (int r = 0; r < nv; ++r) {
             if (gl_find(parent, r) != r) continue;
@@ -625,6 +705,7 @@ static void glide_frame(bool on, int dx, int dy)
                 if (k > topn) { topn = k; top = i; }
             }
             BandMotion bm = { 0 }, bmy = { 0 };
+            GlLag lg = { 0 };
             double sx, sy;
             /* Trust the matched pieces only when they are most of the
              * character. Contra: Bill's running poses change his body's
@@ -638,10 +719,21 @@ static void glide_frame(bool on, int dx, int dy)
                     if (gl_find(parent, i) == r && has[i] && mx[i] == mx[top] && my[i] == my[top] && s_gl_prev_m[from[i]].valid) {
                         bm = s_gl_prev_m[from[i]];
                         bmy = s_gl_prev_my[from[i]];
+                        lg = s_gl_prev_lag[from[i]];
                     }
+                if (!bm.valid)
+                    for (int i = 0; i < nv && !lg.have; ++i)
+                        if (gl_find(parent, i) == r && has[i] && mx[i] == mx[top] && my[i] == my[top])
+                            lg = s_gl_prev_lag[from[i]];
                 for (int i = 0; i < nv; ++i) if (gl_find(parent, i) == r && has[i]) used[from[i]] = true;
                 sx = mx[top];
                 sy = my[top];
+                /* its step measured with last frame's camera instead */
+                int mprev = mx[top] - dx + s_spr_step;
+                lag_prior(&lg, oam + vis[top] * 4);
+                lag_update(&lg, mx[top], mprev, cam_moving);
+                lag_remember(&lg, oam + vis[top] * 4);
+                if (lg.lag) sx = mprev;
             } else if (m * 2 > pieces && chain_spread(parent, r, nv, has, mx, my) <= GL_CHAIN_SPREAD) {
                 /* Most pieces found, moving by slightly different amounts: a
                  * flexing chain, not a pose change (Contra's Waterfall boss:
@@ -653,6 +745,14 @@ static void glide_frame(bool on, int dx, int dy)
                     if (gl_find(parent, i) != r || !has[i]) continue;
                     used[from[i]] = true;
                     BandMotion pm = s_gl_prev_m[from[i]], pmy = s_gl_prev_my[from[i]];
+                    GlLag pl = s_gl_prev_lag[from[i]];
+                    int mprev = mx[i] - dx + s_spr_step;
+                    lag_prior(&pl, oam + vis[i] * 4);
+                    lag_update(&pl, mx[i], mprev, cam_moving);
+                    lag_remember(&pl, oam + vis[i] * 4);
+                    if (pl.lag) mx[i] = mprev;
+                    s_glag[vis[i]] = pl;
+                    s_lagshift[vis[i]] = (int8_t)(pl.lag ? s_spr_lead : 0);
                     ease_band(&pm, mx[i], false);
                     ease_band(&pmy, my[i], false);
                     s_gdx[vis[i]] = (int8_t)mx[i];
@@ -686,7 +786,7 @@ static void glide_frame(bool on, int dx, int dy)
                     if (bj >= 0 && s_gl_prev_m[bj].valid) {
                         ++found;
                         used[bj] = true;
-                        if (!bm.valid) { bm = s_gl_prev_m[bj]; bmy = s_gl_prev_my[bj]; }
+                        if (!bm.valid) { bm = s_gl_prev_m[bj]; bmy = s_gl_prev_my[bj]; lg = s_gl_prev_lag[bj]; }
                     }
                 }
                 if (!bm.valid || found * 2 < pieces) continue;
@@ -702,6 +802,8 @@ static void glide_frame(bool on, int dx, int dy)
                 s_gl_ok[vis[i]] = true;
                 s_gm[vis[i]] = bm;
                 s_gmy[vis[i]] = bmy;
+                s_glag[vis[i]] = lg;
+                s_lagshift[vis[i]] = (int8_t)(lg.lag ? s_spr_lead : 0);
                 s_gliding += sx != 0 || sy != 0;
             }
         }
@@ -709,11 +811,13 @@ static void glide_frame(bool on, int dx, int dy)
     /* Next frame's list: this frame's sprites, then the ghosts. */
     GlSprite nxt[GL_MAX];
     BandMotion nm[GL_MAX], nmy[GL_MAX];
+    GlLag nl[GL_MAX];
     int n = 0;
     for (int i = 0; i < nv; ++i) {
         const uint8_t *o = oam + vis[i] * 4;
         nm[n] = s_gm[vis[i]];
         nmy[n] = s_gmy[vis[i]];
+        nl[n] = s_glag[vis[i]];
         uint8_t small = on && !s_solid[i], blink = 0;
         if (on && small && s_from[i] >= 0)
             blink = s_gl_prev[s_from[i]].age > 0 || s_gl_prev[s_from[i]].blinker;
@@ -731,6 +835,7 @@ static void glide_frame(bool on, int dx, int dy)
         nm[n].x += motion_speed(&nm[n]);
         nmy[n] = s_gl_prev_my[j];
         if (nmy[n].valid) { nmy[n].d0 += nmy[n].v; nmy[n].x += motion_speed(&nmy[n]); }
+        nl[n] = s_gl_prev_lag[j];
         nxt[n++] = g;
     }
     /* Steady shots: blinkers missing this frame (ghosts just made), with a
@@ -743,7 +848,10 @@ static void glide_frame(bool on, int dx, int dy)
     memcpy(s_gl_prev, nxt, sizeof(GlSprite) * (size_t)n);
     memcpy(s_gl_prev_m, nm, sizeof(BandMotion) * (size_t)n);
     memcpy(s_gl_prev_my, nmy, sizeof(BandMotion) * (size_t)n);
+    memcpy(s_gl_prev_lag, nl, sizeof(GlLag) * (size_t)n);
     s_gl_prev_n = n;
+    s_gl_dx2 = on ? s_gl_dx1 : 0;
+    s_gl_dx1 = on ? dx : 0;
 }
 
 static void smooth_reset(void)
@@ -758,6 +866,9 @@ static void smooth_reset(void)
     s_cam_dy = 0;
     memset(s_gl_prev_m, 0, sizeof(s_gl_prev_m));
     memset(s_gl_prev_my, 0, sizeof(s_gl_prev_my));
+    memset(s_gl_prev_lag, 0, sizeof(s_gl_prev_lag));
+    s_gl_dx1 = s_gl_dx2 = 0;
+    s_spr_step = s_spr_lead = 0;
     s_cam_dx = 0;
     s_phase = 0;
 }
@@ -783,13 +894,33 @@ static void snapshot_sprites(void)
     for (int i = 0; i < 16; ++i) s_snap_col[i] = cyc_render_color(16 + i);
 }
 
+/* Where a sprite is drawn relative to where the game put it (native px),
+ * at this picture's phase. Its world movement, shown behind at the same
+ * eased pace as the camera: Ryu running with the camera (same step) stays
+ * exactly where the game puts him on screen, a still enemy moves with the
+ * scenery, others in between. Lagging objects also take this frame's
+ * camera step (see GlLag). */
+static void sprite_glide_offset(int slot, double phase, double *gx, double *gy)
+{
+    *gx = *gy = 0;
+    if (!(s_glide && s_gl_ok[slot] && s_present_rate > 60)) return;
+    double q = 1.0 - phase;
+    const BandMotion *m = &s_gm[slot];
+    double own = m->valid ? m->x - (m->d0 + m->v * phase) : s_gdx[slot] * q;
+    own = own > SMOOTH_MAX_STEP ? SMOOTH_MAX_STEP : own < -SMOOTH_MAX_STEP ? -SMOOTH_MAX_STEP : own;
+    *gx = band_offset(s_cam_band, phase) - own + s_lagshift[slot];
+    const BandMotion *my = &s_gmy[slot];
+    double owny = my->valid ? my->x - (my->d0 + my->v * phase) : s_gdy[slot] * q;
+    owny = owny > SMOOTH_MAX_STEP ? SMOOTH_MAX_STEP : owny < -SMOOTH_MAX_STEP ? -SMOOTH_MAX_STEP : owny;
+    *gy = band_offset_y(s_cam_band, phase) - owny;
+}
+
 static int floordiv(int a, int k) { return a >= 0 ? a / k : -((-a + k - 1) / k); }
 
 /* An in-between picture (or the frame's own, phase 0): every band shifted
  * back by the part of its step still to come, then every sprite over it. */
 static void draw_smooth(uint32_t *out, int ow, int oh, int k, Crop c)
 {
-    double q = 1.0 - s_phase;
     int prev_src = -1, prev_ko = 0;
     for (int y = 0; y < oh; ++y) {
         uint32_t *o = out + (size_t)y * (size_t)ow;
@@ -836,20 +967,7 @@ static void draw_smooth(uint32_t *out, int ow, int oh, int k, Crop c)
         uint16_t table = s_snap_table[ln];
         int rows = tall ? 16 : 8;
         double gx = 0, gy = 0;
-        if (s_glide && s_gl_ok[slot] && s_present_rate > 60) {
-            /* Its world movement, shown behind at the same eased pace as the
-             * camera: Ryu running with the camera (same step) stays exactly
-             * where the game puts him on screen, a still enemy moves with
-             * the scenery, others in between. */
-            const BandMotion *m = &s_gm[slot];
-            double own = m->valid ? m->x - (m->d0 + m->v * s_phase) : s_gdx[slot] * q;
-            own = own > SMOOTH_MAX_STEP ? SMOOTH_MAX_STEP : own < -SMOOTH_MAX_STEP ? -SMOOTH_MAX_STEP : own;
-            gx = band_offset(s_cam_band, s_phase) - own;
-            const BandMotion *my = &s_gmy[slot];
-            double owny = my->valid ? my->x - (my->d0 + my->v * s_phase) : s_gdy[slot] * q;
-            owny = owny > SMOOTH_MAX_STEP ? SMOOTH_MAX_STEP : owny < -SMOOTH_MAX_STEP ? -SMOOTH_MAX_STEP : owny;
-            gy = band_offset_y(s_cam_band, s_phase) - owny;
-        }
+        sprite_glide_offset(slot, s_phase, &gx, &gy);
         int x0 = o[3] * k + (int)lround(gx * k) - c.left * k;
         int y0 = ytop * k + (int)lround(gy * k) - c.top * k;
         unsigned attr = o[2];

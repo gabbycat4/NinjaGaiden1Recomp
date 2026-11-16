@@ -1,18 +1,15 @@
 # NINJA GAIDEN - NEXT STEPS (run in fish, one block at a time)
 # ============================================================
-# Done: cutscene fix confirmed on the whole recording; Phase 5 measured (notes.txt).
-# New: the HUD split at line 56 is kept for good, so scrolling is smoothed from its
-# first step after resting at the left edge (stage starts, respawns, bosses).
+# Fixed (tested offline on your recorded play with tools/glide_harness.c):
+#   - lanterns: follow the game's "sprite camera", never group with Ryu (drift -82%)
+#   - the fence flash: scrolling from rest no longer jerks back 2 px first
 #
-# 1) Save and rebuild the window build
+# 1) Save and rebuild
 cd ~/Projects/NinjaGaiden1Recomp
-git add -A; git commit -m "Ninja Gaiden: Phase 5 measured; HUD split at line 56 kept"
+git add -A; git commit -m "Ninja Gaiden: lanterns follow the sprite camera; no jerk back when scrolling starts; NG1 glide harness"
 cmake --build build-play --parallel
 
-# 2) Play with smooth motion, writing a pacing log (Phase 7). In the menu (Escape):
-#   Smooth motion -> Pictures per second 240, Second core On; Graphics -> VSync Off.
-#   Play a few minutes (Act 1 is enough), then quit. Close the game first if you
-#   change config.ini by hand.
+# 2) Play: Act 1 start (the fence), the lanterns (walk past them, stop next to them)
 cd ~/Projects/NinjaGaiden1Recomp
-env CYC_PACING_LOG=pacing.log ./build-play/ng1recomp ninjagaiden.nes
-#   Tell Claude how it looked (scrolling, enemies, flicker) - Claude reads pacing.log.
+env CYC_PACING_LOG=pacing.log mangohud ./build-play/ng1recomp ninjagaiden.nes
+#   Tell Claude how the fence and the lanterns look now - and the "one more thing".
