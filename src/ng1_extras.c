@@ -952,6 +952,7 @@ static void prepare(void)
      * frame of the route. On a mismatch, show the NES's picture for 30 frames. */
     if (s_unlimit || smooth) {
         int lines, bad = sprite_check(&lines);
+        s_prepared = s_frame;   /* sprite_check marks s_comp as stale; this frame is still being prepared */
         if (bad > 0) s_midchr_hold = MIDCHR_HOLD;
         else if (s_midchr_hold > 0) --s_midchr_hold;
         if (s_midchr_hold > 0) return;
