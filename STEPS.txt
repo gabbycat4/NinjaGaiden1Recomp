@@ -1,15 +1,34 @@
 # NINJA GAIDEN - NEXT STEPS (run in fish, one block at a time)
 # ============================================================
-# New: Smooth motion -> "Camera easing": Quick / Gentle (default) / Softest.
-#   Gentle eases the scenery in and out over 6 frames (1/10 s) at every start and stop;
-#   Ryu and the enemies stay quick and exact.
+# Done: defaults, README, icon. Now: fresh-config test, then publish (Phase 8-9).
 #
 # 1) Save and rebuild
 cd ~/Projects/NinjaGaiden1Recomp
-git add -A; git commit -m "Ninja Gaiden: Camera easing (Quick/Gentle/Softest) for starts and stops"
+git add -A; git commit -m "Ninja Gaiden: defaults (Gentle easing, steady shots off), README, icon"
 cmake --build build-play --parallel
 
-# 2) Play: stop and go at the 1-1 fence. Compare Gentle, Softest and Quick in the menu
-#   (Escape -> Smooth motion -> Camera easing; it changes immediately).
+# 2) Fresh-config test: start as a new player would (your settings are kept aside)
 cd ~/Projects/NinjaGaiden1Recomp
-env CYC_PACING_LOG=pacing.log mangohud ./build-play/ng1recomp ninjagaiden.nes
+mv build-play/config.ini build-play/config.mine.ini
+./build-play/ng1recomp ninjagaiden.nes
+#   Check: Pictures per second 60, Camera easing Gentle, menus look right. Then quit and:
+mv build-play/config.ini build-play/config.fresh.ini; mv build-play/config.mine.ini build-play/config.ini
+#   (Tell Claude anything odd; Claude can read config.fresh.ini.)
+
+# 3) Publish on GitHub (public repo, pushes main)
+cd ~/Projects/NinjaGaiden1Recomp
+git ls-tree HEAD nesrecomp recomp-ui
+gh repo create NinjaGaiden1Recomp --public --source=. --remote=origin --push --description "Ninja Gaiden (NES) recompiled to native PC: 240 Hz smooth motion, no flicker, eased camera. Needs your own ROM."
+
+# 4) Stranger test: clone and build like a new user, with a fresh config
+mkdir -p ~/Test; cd ~/Test
+git clone --recursive https://github.com/gabbycat4/NinjaGaiden1Recomp.git
+cd NinjaGaiden1Recomp; cp ~/Projects/NinjaGaiden1Recomp/ninjagaiden.nes .
+cmake -S . -B build-play -G Ninja -DCMAKE_BUILD_TYPE=Release; cmake --build build-play --parallel
+./build-play/ng1recomp ninjagaiden.nes
+
+# 5) Downloads: store the ROM as an encrypted secret, then test the release workflow
+cd ~/Projects/NinjaGaiden1Recomp
+bash tools/release/upload-rom-secret.sh ninjagaiden.nes gabbycat4/NinjaGaiden1Recomp
+#   Then on GitHub: Actions -> Release builds -> Run workflow. When it's green:
+#   git tag v1.0.0; git push origin v1.0.0

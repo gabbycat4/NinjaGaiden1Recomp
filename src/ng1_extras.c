@@ -570,7 +570,7 @@ enum { SHOT_MAX = 32 };
 typedef struct { int y, x; uint8_t tile, attr; BandMotion m, my; } SteadyShot;
 static SteadyShot s_shot[SHOT_MAX];
 static int        s_nshot;
-static int  s_shots_saved = 1, s_shots = 1;
+static int  s_shots_saved = 0, s_shots = 0;   /* off: Ninja Gaiden has no every-other-frame shots (measured) */
 static int      s_gl_prev_n, s_gliding;
 static int8_t   s_gdx[64], s_gdy[64];    /* per slot: its character's movement in the world this frame */
 static bool     s_gl_ok[64];
@@ -1385,6 +1385,7 @@ static const CycHostOption s_options[] = {
     { "--emu-thread",      true, "0|1: next frame on a second core during in-between pictures" },
     { "--char-glide",      true, "0|1: characters glide between frames (with --present-rate)" },
     { "--steady-shots",    true, "0|1: shots the game blinks are drawn every frame (with --char-glide)" },
+    { "--camera-easing",   true, "0|1|2: Quick / Gentle / Softest starts and stops of the scenery" },
     { "--plain",           true, "0|1: 1 shows the engine's own picture (no crop, no redraw), for comparing" },
 };
 
@@ -1412,6 +1413,7 @@ static bool option(void *ctx, const char *name, const char *value)
     if (!strcmp(name, "--emu-thread"))      return parse_int(value, 0, 1, &s_thread);
     if (!strcmp(name, "--char-glide"))      return parse_int(value, 0, 1, &s_glide);
     if (!strcmp(name, "--steady-shots"))    return parse_int(value, 0, 1, &s_shots);
+    if (!strcmp(name, "--camera-easing"))   return parse_int(value, 0, 2, &s_ease);
     if (!strcmp(name, "--plain"))           return parse_int(value, 0, 1, &s_plain);
     if (!strcmp(name, "--present-scale"))   return parse_int(value, 1, SCALE_MAX, &s_scale);
     FILE **fp = !strcmp(name, "--scroll-log") ? &s_scroll_log
@@ -1454,9 +1456,8 @@ static const RecompRuntimeUiItem s_menu[] = {
       "instead of hopping. Off: they stay where the game put them on screen.",
       RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, NULL, 0, NULL },
     { "ng1.shots", "Smooth motion", "Steady shots",
-      "The game shows every shot only every other frame (a see-through blink on a CRT). On: a shot "
-      "missing for a frame is drawn where it would be, so it flies smoothly instead of looking doubled. "
-      "Needs Character glide.",
+      "For small sprites a game shows only every other frame (Contra's shots). Ninja Gaiden doesn't do "
+      "this, so it is off. On: such a sprite missing for a frame is drawn where it would be. Needs Character glide.",
       RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, NULL, 0, NULL },
     { "ng1.thread", "Smooth motion", "Second core",
       "Runs the next NES frame on a second CPU core while the in-between pictures are shown, so they "

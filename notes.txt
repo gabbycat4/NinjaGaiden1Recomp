@@ -179,3 +179,11 @@ is "too fast / uneven" at the fence; Ryu looks slightly uneven.
   0.84 1.0 1.32 1.52 1.52; stop: Gentle 1.52 1.16 1.0 0.68 ... Ryu uneven 1.4% -> 1.0%,
   lanterns unchanged (591 px drift). Death/transition frames (scroll 0 for one frame) give
   a few 1-4 px picture jumps in Gentle (13 in the recording): left as is.
+
+## Phase 8-9: defaults and release files (2026-11-15)
+
+- Defaults: PresentRate 60, CameraEasing 1 (Gentle), CharGlide 1, EmuThread 1,
+  NoSpriteLimit 1, SpriteOrder 1, crop 8, ScreenShake 0 (steady), rewind off.
+  SteadyShots now 0 (NG1 has no every-other-frame shots) with generic menu text.
+- --camera-easing 0|1|2 for one run. README written from Contra's (SHA-1, features,
+  recommended settings, troubleshooting, how it works). Original icon (shuriken + moon).
