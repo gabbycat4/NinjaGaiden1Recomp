@@ -72,3 +72,35 @@ Engine checkout: ~/Projects/nesrecomp on dd2-240hz at 826fbbf (thread pinning) -
 - Sprites: up to 26 on screen, busiest line up to 16 in play (> 8 = the NES flicker).
 - The glide counter alternates (e.g. 6,0,6,0): something moves every other frame
   (30 Hz movers?). To measure from oam.log.
+
+## Harvest from real play (2026-11-15)
+
+- One play session 20:09-20:47 to the end (6-4 boss, ending, credits): 221 pieces.
+  Seeds 4,949 -> 7,208. (A second replay run was closed early: harmless.)
+- tools/segment_logs.py fixes: resolves a relative replay folder; runs every piece to
+  where the next starts (pieces with no button presses ran 1 frame: cutscenes, ending).
+
+## Cutscenes: mid-frame CHR (fixed)
+
+- Cinema scenes are letterboxed (2-4 bands, under CINEMA_BANDS) but switch the sprite CHR
+  bank mid-frame: the no-flicker redraw (frame-end CHR) drew font tiles over faces.
+- Fix in prepare(): the self-check (game-order redraw == NES picture on lines with <= 8
+  sprites) runs every frame; a mismatch shows the NES picture for 30 frames.
+- Whole recording (131,452 frames): 3,488 mismatched frames, all in cutscenes/ending
+  (pieces 162-217); in gameplay 1 frame (a screen-off transition, 5 px).
+
+## Phase 5: the whole game (recorded play, 131,452 frames)
+
+- Camera: horizontal only, NO vertical scrolling anywhere (playfield Y always 64).
+  Steps 1,2,1,2 (1.5 px/frame) mostly, sometimes 1,1,1; back -1/-2. X spans 512.
+- Split: only the HUD at line 56 (sprite 0 = slot 0, tile 00, Y 0x26, never rotated).
+  No parallax layers. Non-scrolling rooms (bosses) and rests at X 0 merge playfield and
+  HUD for seconds: 56 returns after > 30 frames. Fix: the line-56 split is kept for good
+  once seen (HUD_SPLIT_LINE in bands_frame()).
+- Sprites 8x16. OAM rotates every frame (slots 1-63; slot 0 fixed). Busiest line up to
+  25 (bosses/fire), commonly 3-10: lots of NES flicker -> No sprite flicker matters.
+- Movers (world coordinates): steps -3..3 px; most move every frame, some every other
+  frame (30 Hz). Eased glide (NG2) applies.
+- No every-other-frame blinkers (<= 4%, the hit blink): Steady shots not needed (harmless).
+- Flashes: none in gameplay. The background goes black for a moment in cutscenes only;
+  the 5-3 lightning is drawn graphics, not a palette flash. Nothing to soften.

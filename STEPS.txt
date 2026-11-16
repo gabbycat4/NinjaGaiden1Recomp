@@ -1,26 +1,18 @@
 # NINJA GAIDEN - NEXT STEPS (run in fish, one block at a time)
 # ============================================================
-# Done: harvest from your play (seeds 4,949 -> 7,208). Fix for the garbled cutscenes is in
-# src/ng1_extras.c (show the NES's own picture when the sprites' graphics bank changes
-# mid-frame).
+# Done: cutscene fix confirmed on the whole recording; Phase 5 measured (notes.txt).
+# New: the HUD split at line 56 is kept for good, so scrolling is smoothed from its
+# first step after resting at the left edge (stage starts, respawns, bosses).
 #
-# 1) Save the seeds and the fix
+# 1) Save and rebuild the window build
 cd ~/Projects/NinjaGaiden1Recomp
-git add -A; git commit -m "Ninja Gaiden: seeds from real play; cutscenes with mid-frame CHR shown as the NES drew them"
-
-# 2) Rebuild both builds (new seeds + the fix)
-cd ~/Projects/NinjaGaiden1Recomp
-cmake --build build-headless --parallel
+git add -A; git commit -m "Ninja Gaiden: Phase 5 measured; HUD split at line 56 kept"
 cmake --build build-play --parallel
 
-# 3) Measure your whole recorded play (221 pieces, headless, ~10-20 min; 4 at a time).
-#   Gives Claude every frame's scroll / sprites / self-check, act by act.
-#   (The folder is given by name: the newest one is the run you closed early.)
+# 2) Play with smooth motion, writing a pacing log (Phase 7). In the menu (Escape):
+#   Smooth motion -> Pictures per second 240, Second core On; Graphics -> VSync Off.
+#   Play a few minutes (Act 1 is enough), then quit. Close the game first if you
+#   change config.ini by hand.
 cd ~/Projects/NinjaGaiden1Recomp
-python -I tools/segment_logs.py build-play/diagnostics/replay-20261115-204804 --jobs 4
-#   Tell Claude when it says "all segments ran" (or paste what it says instead).
-
-# 4) Meanwhile or after: check the cutscenes in the window (Act 1 ending, the "lunar
-#   eclipse" scene, the credits). They should look like the NES now: no letters over faces.
-cd ~/Projects/NinjaGaiden1Recomp
-./build-play/ng1recomp ninjagaiden.nes
+env CYC_PACING_LOG=pacing.log ./build-play/ng1recomp ninjagaiden.nes
+#   Tell Claude how it looked (scrolling, enemies, flicker) - Claude reads pacing.log.

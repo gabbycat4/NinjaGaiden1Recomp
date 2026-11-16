@@ -22,9 +22,24 @@ def last_frame(inp):
             last = max(last, int(p[0]))
     return last
 
+def first_frame(inp):
+    for line in inp.read_text().splitlines():
+        p = line.split()
+        if p and p[0].isdigit():
+            return int(p[0])
+    return None
+
 def run(n, rdir, out, shot_every):
     state, inp = rdir / f'segment-{n:06d}.state', rdir / f'segment-{n:06d}.input'
+    # Run the whole piece: to where the next one starts (a piece with no button
+    # presses, e.g. a cutscene or the ending, would otherwise run 1 frame).
+    nxt = rdir / f'segment-{n + 1:06d}.input'
+    start, nstart = first_frame(inp), first_frame(nxt) if nxt.exists() else None
     end = last_frame(inp) + 1
+    if nstart is not None and nstart > end:
+        end = nstart
+    elif start is not None and nstart is None:
+        end = max(end, start + 600)
     s = f'segment-{n:06d}'
     cmd = [str(ROOT / 'build-headless/ng1recomp'), str(ROOT / 'ninjagaiden.nes'),
            '--load-state', str(state), '--no-save', '--replay-exact', '--frames', str(end),
@@ -41,7 +56,7 @@ def main():
     ap.add_argument('--jobs', type=int, default=4)
     ap.add_argument('--shot-every', type=int, default=150)
     a = ap.parse_args()
-    rdir = Path(a.replay_dir) if a.replay_dir else Path(sorted(glob.glob(str(ROOT / 'build-play/diagnostics/replay-*')))[-1])
+    rdir = Path(a.replay_dir).resolve() if a.replay_dir else Path(sorted(glob.glob(str(ROOT / 'build-play/diagnostics/replay-*')))[-1])
     segs = sorted(int(p.name[8:14]) for p in rdir.glob('segment-*.state'))
     out = ROOT / 'build-play/diagnostics/measure'
     (out / 'shots').mkdir(parents=True, exist_ok=True)

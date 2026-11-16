@@ -406,6 +406,9 @@ static void shake_lines(void)
     s_line_have = true;
 }
 
+enum { HUD_SPLIT_LINE = 56 };
+static bool s_hud_split_seen;
+
 static void bands_frame(void)
 {
     shake_lines();
@@ -435,7 +438,14 @@ static void bands_frame(void)
         bool real = y == 0 || (on ? !continues(y) : (cyc_render_line_mask(y - 1) & 0x08) != 0);
         if (real) split_age[y] = 0;
         else if (split_age[y] < 255) ++split_age[y];
-        if (real || (on && split_age[y] <= SPLIT_HOLD)) starts[n++] = y;
+        /* Ninja Gaiden's HUD always ends at line 56 (sprite 0 hit). At rest
+         * at the stage's left edge the playfield lines up with it for
+         * seconds (stage starts, respawns, backing up to X 0: 56 times in
+         * the recorded play over 30 frames); kept for good once seen, so the
+         * camera's smoothing is already running when it starts to move. */
+        if (real && y == HUD_SPLIT_LINE) s_hud_split_seen = true;
+        if (real || (on && (split_age[y] <= SPLIT_HOLD || (y == HUD_SPLIT_LINE && s_hud_split_seen))))
+            starts[n++] = y;
     }
     if (n > MAX_PF_BANDS || n >= CINEMA_BANDS) return;
     int biggest = -1, most = 0;
