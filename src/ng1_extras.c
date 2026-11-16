@@ -984,6 +984,15 @@ static void sprite_glide_offset(int slot, double phase, double *gx, double *gy)
 {
     *gx = *gy = 0;
     if (!(s_glide && s_present_rate > 60)) return;
+    {   /* On a band other than the camera's (the status bar: the item box's
+         * icon is a sprite): fixed on that band, never glided. The game
+         * keeps it still on screen; glided as a character it looked like it
+         * moved against the camera and, with the scenery eased more gently
+         * than characters, swayed left and right on every scroll. */
+        const uint8_t *o = s_snap_oam + slot * 4;
+        int b = s_line_band[clampi(o[0] + 9, 0, NES_H - 1)];
+        if (b >= 0 && b != s_cam_band) { *gx = band_offset(b, phase); *gy = band_offset_y(b, phase); return; }
+    }
     if (!s_gl_ok[slot]) {
         /* Not matched yet (just appeared): moves with the scenery it is on,
          * like a still object (lanterns scrolling into view), instead of

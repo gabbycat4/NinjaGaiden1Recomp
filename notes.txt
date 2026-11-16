@@ -187,3 +187,13 @@ is "too fast / uneven" at the fence; Ryu looks slightly uneven.
   SteadyShots now 0 (NG1 has no every-other-frame shots) with generic menu text.
 - --camera-easing 0|1|2 for one run. README written from Contra's (SHA-1, features,
   recommended settings, troubleshooting, how it works). Original icon (shuriken + moon).
+
+## Replay: the status bar's item icon swayed (fixed)
+
+- User: the item box icon (a sprite in the HUD) moves left/right while the screen
+  scrolls, not on the boss. It was glided as a character: still on screen = moving
+  against the camera in the world; with Gentle (scenery eased more gently than
+  characters) the two no longer cancelled. Now sprites on a band other than the
+  camera's (the status bar) are fixed on that band.
+- Harness (Acts 2 and 4): status-bar sprite pictures drawn off their spot 48,544 -> 2,284
+  of 70,212; the rest are playfield sprites just under the bar (correctly glided).

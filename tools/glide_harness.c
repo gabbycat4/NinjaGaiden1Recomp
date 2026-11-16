@@ -36,7 +36,7 @@ const uint8_t *cyc_frame_bg_opaque(void){static uint8_t z[256*240];return z;}
 
 typedef struct { int key; long wc, wp; double drawn; bool have, seen, still; } Track;
 typedef struct { int key; double last, step; bool hs; long f; } RTrack;
-static RTrack ry[64]; static int nry; static long rpics, rbad; static double rsum;
+static long hudn, hudmoved; static RTrack ry[64]; static int nry; static long rpics, rbad; static double rsum;
 int main(int argc,char**argv){
   if(argc<3){fprintf(stderr,"usage: gh OAM SCROLL [lag] [v]\n");return 2;}
   FILE*fo=fopen(argv[1],"r"),*fs=fopen(argv[2],"r"); if(!fo||!fs){perror("open");return 1;}
@@ -117,9 +117,11 @@ int main(int argc,char**argv){
         ry[t].last=sx; ry[t].step=st; ry[t].hs=true; ry[t].f=f;
       }
     }
+    if(getenv("GH_HUD")) for(int ph=0;ph<4;++ph){ for(int sl=1;sl<64;sl++){const uint8_t*o=H_oam+sl*4; if(o[0]>=50)continue; double gx,gy; sprite_glide_offset(sl,ph/4.0,&gx,&gy); if(fabs(gx)>0.01){ hudmoved++; if(getenv("GH_HUDV")&&ph==0) printf("  H %ld y%d t%02x x%d band%d cam%d nb%d gx%.2f\n",f,o[0],o[1],o[3],s_line_band[o[0]+9<240?o[0]+9:239],s_cam_band,s_nband,gx);} hudn++; } }
     /* drop items not seen this frame */
     int k=0; for(int i=0;i<ntr;i++) if(tr[i].seen) tr[k++]=tr[i]; ntr=k;
   }
+  if(getenv("GH_HUD")) printf("hud sprites: pictures %ld, moved off their spot %ld\n",hudn,hudmoved);
   printf("ryu: pictures %ld, uneven (step change > 0.25 px) %ld, mean step change %.3f px\n", rpics, rbad, rpics? rsum/rpics:0);
   printf("lag %d: frames %ld, still item-frames %ld, pictures %ld, moved >0.3 px vs scenery: %ld, total drift %.1f px\n",
          s_lag_enable, frames, still, pics, shaky, wob);
