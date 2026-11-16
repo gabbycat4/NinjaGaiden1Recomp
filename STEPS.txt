@@ -1,32 +1,25 @@
 # NINJA GAIDEN - NEXT STEPS (run in fish, one block at a time)
 # ============================================================
+# Done: git + pins, headless build, probe, harvest route = 100% native (Stage 1-1 only).
 #
-# 1) Git and the pinned engine + menu (only once)
-#   Pins: engine 826fbbf (thread pinning, as Contra), menu c099b88 (tested on BOS).
-#   The "git add" before the update stops it resetting the menu to another commit
-#   (what happened in Contra).
+# 1) Save the step
 cd ~/Projects/NinjaGaiden1Recomp
-git init; git branch -m main
-git submodule add -b dd2-240hz https://github.com/gabbycat4/nesrecomp.git nesrecomp
-git submodule add https://github.com/mstan/recomp-ui.git recomp-ui
-cd nesrecomp; git checkout 826fbbf; cd ../recomp-ui; git checkout c099b88; cd ..
-git add nesrecomp recomp-ui
-git submodule update --init --recursive
-git ls-tree HEAD nesrecomp recomp-ui; git diff --cached --submodule=short nesrecomp recomp-ui
-#   (before the first commit ls-tree shows nothing; after it, both lines must say 826fbbf... and c099b88...)
-git add -A; git commit -m "Ninja Gaiden: project from the Contra template, pinned engine and menu"
-git ls-tree HEAD nesrecomp recomp-ui
+git add -A; git commit -m "Ninja Gaiden: harvest route (Stage 1-1), seeds, first measurements"
 
-# 2) Headless build (the first build takes a while: it recompiles the game)
+# 2) Window build (Phase 4)
 cd ~/Projects/NinjaGaiden1Recomp
-cmake -S . -B build-headless -G Ninja -DCMAKE_BUILD_TYPE=Release -DNESRECOMP_HEADLESS=ON
-cmake --build build-headless --parallel
+cmake -S . -B build-play -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-play --parallel
+./build-play/ng1recomp ninjagaiden.nes
 
-# 3) First boot + probe: screenshots every 100 frames, so Claude can see the intro,
-#   the title and where Act 1 starts (route.txt presses START at 300, 700, 1100, 1500)
+# 3) Play! Every session is recorded in build-play/diagnostics (nothing to switch on).
+#   Get as far as you can: every act, the bosses, the cutscenes between acts, and the
+#   ending if you get there. Save states (F7) are fine to get past the hard parts.
+#   The smooth-motion settings are still Contra's, untuned for this game: just play,
+#   and tell Claude anything that looks wrong (a phone video helps for flicker).
+#   Escape / R1 = menu, F11 fullscreen, F7 save states, Tab fast forward.
+
+# 4) After playing: replay the recordings headless to harvest the new code
 cd ~/Projects/NinjaGaiden1Recomp
-./build-headless/ng1recomp ninjagaiden.nes --frames 600 --screenshot boot.png
-mkdir -p shots
-./build-headless/ng1recomp ninjagaiden.nes --frames 3000 --input route.txt --shot-every 100 --screenshot shots/probe.png
-#   Then tell Claude it's done (Claude reads the shots from the folder).
-#   If step 2 or 3 errors, paste the error to Claude.
+python -I ~/Projects/nesrecomp/tools/cyc/replay_diagnostic.py build-play/diagnostics --exe build-play/ng1recomp --rom ninjagaiden.nes --keep-going --host-arg=--miss-log --host-arg=$HOME/Projects/NinjaGaiden1Recomp/seeds.txt
+#   Then tell Claude: Claude counts the "miss-log: N ROM addresses" lines; N > 0 = rebuild.

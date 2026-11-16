@@ -50,3 +50,25 @@ Engine checkout: ~/Projects/nesrecomp on dd2-240hz at 826fbbf (thread pinning) -
   that describe NG2/Contra stages, the "Steady shots" menu text (does NG1 blink shots?).
 - ng1_extras.c compile-checks clean with gcc -Wall -Wextra.
 - Pins: nesrecomp 826fbbf, recomp-ui c099b88.
+
+## Phase 3: harvest (2026-11-15)
+
+- Route (tools/make_routes.py): START 300 + 700, random play from 1000, START pairs every
+  1500 frames (pause/unpause in play, restart after a game over). 18,500 frames.
+- Result: native 100.0% of what it reached, 4,949 seed addresses.
+- Coverage: Stage 1-1 only (stuck by the shop 6000-13000; 3 lives used). The rest of the
+  game must come from real play (diagnostics replay, Phase 3 step 4).
+
+## Phase 5 first look (scroll.log of the route, Stage 1-1)
+
+- HUD at the TOP: lines 0-55 at scroll (0,8); playfield band starts at line 56, Y = 64.
+  The sprite-0 split sits at line 56 (NG2's was 48).
+- Camera 60 Hz on a 2,1,2,1 rhythm (1.5 px a frame), same family as NG2's 1,2,1,2:
+  needs the eased camera. Backing up: -1/-2. X spans 512 (wraps 511 -> 0).
+- NG2's bug is here too: when the playfield X is 0 its lines continue the HUD's
+  (HUD line 55 = row 63, playfield line 56 = row 64), so the split VANISHES for that
+  frame (frames 2767, 3448, 14947). "Keep a split for 30 frames" (in the extras) covers it.
+- Two 256 px camera jumps (frames 4514, 13862) are respawns after a death, not glitches.
+- Sprites: up to 26 on screen, busiest line up to 16 in play (> 8 = the NES flicker).
+- The glide counter alternates (e.g. 6,0,6,0): something moves every other frame
+  (30 Hz movers?). To measure from oam.log.

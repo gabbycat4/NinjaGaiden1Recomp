@@ -1,67 +1,77 @@
 #!/usr/bin/env python3
-"""make_routes.py - writes Ninja Gaiden's harvesting routes (no game data in them).
+"""make_routes.py - writes Ninja Gaiden's harvesting route (no game data in it).
 
-  route_play.txt  1 player:  Konami code at the title (30 lives), START, then a
-                  random-play tail until --end.
-  route_2p.txt    2 players: Konami code, SELECT (2 PLAYERS), START, then random
-                  play on both controllers ("2:" lines are controller 2).
+  route_play.txt  START at 300 (skips the opening cutscene), START at 700 (title),
+                  then a random-play tail from 1000 until --end.
 
-Probe (2026-11-15): the title has finished scrolling in by frame 300; START there
-reaches gameplay at ~900. The code starts at 340, each button held 8 frames then
-released 8. START is never pressed after the title (it would pause the game).
+Probe (2026-11-15, shots/probe_*.png): Tecmo logo 100-300, title 400-700, "Act-I"
+card 800-900, Stage 1-1 playable by ~1000. A START in play pauses (timer froze at
+143 after the START at 1500). Ninja Gaiden has no cheat code.
 
-  python3 -I tools/make_routes.py            (run in ~/Projects/NinjaGaiden1Recomp)
+Recovery: every RECOVER frames the tail presses START twice, PAIR frames apart.
+In play that is pause + unpause (harmless); after a game over at the title it
+starts the game again (and skips the Act card).
+
+Buttons: B = sword, A = jump, UP+B = the special (ninpo) item.
+
+  python3 -I tools/make_routes.py [END]     (run in ~/Projects/NinjaGaiden1Recomp)
 """
 import random
 import sys
 
-CODE = ["UP", "UP", "DOWN", "DOWN", "LEFT", "RIGHT", "LEFT", "RIGHT", "B", "A"]
-CODE_START = 340
 PRESS = 8
 TAIL_START = 1000
 END = 18500
+RECOVER = 1500
+PAIR = 30
 
 
-def title(two_players):
-    lines, f = [], CODE_START
-    for b in CODE:
-        lines += [f"{f} {b}", f"{f + PRESS} -"]
-        f += 2 * PRESS
-    if two_players:
-        lines += [f"{f} SELECT", f"{f + PRESS} -"]
-        f += 2 * PRESS
-    lines += [f"{f} START", f"{f + PRESS} -"]
-    return lines
+def title():
+    return ["300 START", f"{300 + PRESS} -", "700 START", f"{700 + PRESS} -"]
 
 
-def tail(seed, port=""):
-    """Mostly run right firing, with jumps, aiming, lying down and some backing up.
-    Ticks of 6 frames; B alternates on/off so the default gun keeps firing."""
+def tail(seed):
+    """Mostly run right slashing, with jumps (wall clinging comes free), some
+    backing up, crouch slashes and the special. Ticks of 6 frames."""
     rng = random.Random(seed)
     lines, f = [], TAIL_START
-    move, aim, left_for, jump_for = "RIGHT", None, 0, 0
-    fire = False
+    move, crouch, jump_for, special_for = "RIGHT", False, 0, 0
+    slash = False
+    next_recover = TAIL_START + RECOVER
     while f < END:
+        if f >= next_recover:
+            lines += [f"{f} START", f"{f + PRESS} -",
+                      f"{f + PAIR} START", f"{f + PAIR + PRESS} -"]
+            f += PAIR + 2 * PRESS
+            next_recover += RECOVER
+            continue
         if rng.random() < 0.06:                       # change what we're doing
             r = rng.random()
-            if r < 0.70: move, aim = "RIGHT", None
-            elif r < 0.80: move, aim = "LEFT", None
-            elif r < 0.88: move, aim = "RIGHT", "UP"   # shoot diagonally up
-            elif r < 0.93: move, aim = None, "UP"      # shoot straight up
-            elif r < 0.97: move, aim = None, "DOWN"    # lie down
-            else: move, aim = "RIGHT", "DOWN"          # shoot diagonally down
-        if jump_for == 0 and rng.random() < 0.07:
-            jump_for = rng.choice([1, 2, 3])          # ticks holding A
-        fire = not fire
-        held = [b for b in (aim, move) if b]
+            if r < 0.72: move, crouch = "RIGHT", False
+            elif r < 0.84: move, crouch = "LEFT", False
+            elif r < 0.92: move, crouch = None, False  # stand and fight
+            else: move, crouch = None, True            # crouch slash
+        if jump_for == 0 and rng.random() < 0.09:
+            jump_for = rng.choice([1, 2, 3, 4])       # ticks holding A
+        if special_for == 0 and rng.random() < 0.02:
+            special_for = 1
+        slash = not slash
+        held = []
+        if special_for:
+            held.append("UP")
+            special_for -= 1
+        elif crouch:
+            held.append("DOWN")
+        if move:
+            held.append(move)
         if jump_for:
             held.append("A")
             jump_for -= 1
-        if fire:
+        if slash or "UP" in held:
             held.append("B")
-        lines.append(f"{f} {port}{'+'.join(held) if held else '-'}")
+        lines.append(f"{f} {'+'.join(held) if held else '-'}")
         f += 6
-    lines.append(f"{END} {port}-")
+    lines.append(f"{END} -")
     return lines
 
 
@@ -72,12 +82,10 @@ def write(path, lines):
 
 
 def main():
-    end = int(sys.argv[1]) if len(sys.argv) > 1 else END
-    globals()["END"] = end
-    write("route_play.txt", title(False) + tail(1))
-    two = title(True) + tail(2) + tail(3, "2:")
-    two.sort(key=lambda s: int(s.split()[0]))           # engine reads lines in frame order
-    write("route_2p.txt", two)
+    global END
+    if len(sys.argv) > 1:
+        END = int(sys.argv[1])
+    write("route_play.txt", title() + tail(1))
 
 
 if __name__ == "__main__":
